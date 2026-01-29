@@ -65,16 +65,22 @@ runs:
         curl -L https://github.com/accuknox/aspm-scanner-cli/releases/download/v0.13.4/accuknox-aspm-scanner -o accuknox-aspm-scanner
         chmod +x accuknox-aspm-scanner
 
+        mkdir -p accuknox-reports
+
         CMD_ARGS=""
         [ -n "$FILE" ] && CMD_ARGS="$CMD_ARGS --file $FILE"
         [ -n "$DIRECTORY" ] && CMD_ARGS="$CMD_ARGS --directory $DIRECTORY"
         [ "$COMPACT" = "true" ] && CMD_ARGS="$CMD_ARGS --compact"
         [ "$QUIET" = "true" ] && CMD_ARGS="$CMD_ARGS --quiet"
         [ -n "$FRAMEWORK" ] && CMD_ARGS="$CMD_ARGS --framework $FRAMEWORK"
-
-        if [ "$SOFT_FAIL" = "true" ]; then
-          SOFT_FAIL_ARG="--softfail"
-        fi
+        [ "$SOFT_FAIL" = "true" ] && SOFT_FAIL_ARG="--softfail"
 
         echo ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}"
         ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}"
+
+    - name: Upload AccuKnox IaC Scan Reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: accuknox-iac-scan-reports
+        path: accuknox-reports/
