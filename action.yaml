@@ -1,86 +1,98 @@
 name: "AccuKnox IaC"
-description: "Run AccuKnox Infrastructure as Code (IaC) scan on the repository"
+description: "Run AccuKnox Infrastructure as Code (IaC) scan on the repository; results are automatically uploaded to CSPM panel."
 
 branding:
   icon: "shield"
   color: "purple"
 
 inputs:
-  directory:
-    description: 'Directory with infrastructure code to scan'
-    required: false
-    default: "."
-  file:
-    description: 'Specify a file for scanning; cannot be used with directory input.'
-    required: false
-    default: ""
-  compact:
-    description: "Do not display code blocks in output"
-    required: false
-    default: true
-  quiet:
-    description: "Display only failed checks"
-    required: false
-    default: true
   soft_fail:
-    description: "Do not return an error code if there are failed checks"
+    description: "Do not fail the pipeline if scan finds issues"
     required: false
-    default: false
-  framework:
-    description: "Run only on a specific infrastructure, Kubernetes or Terraform"
+    default: "true"
+  pipeline_id:
+    description: "Pipeline/Job ID to correlate with CI/CD runs"
     required: false
-    default: ""
+    default: ${{ github.run_id }}
+  job_url:
+    description: "URL for the current GitHub job"
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   accuknox_endpoint:
     description: "CSPM panel endpoint URL"
-    required: true
-  accuknox_label:
-    description: "Label in AccuKnox SaaS for scan results"
     required: true
   accuknox_token:
     description: "Token for authenticating with CSPM panel"
     required: true
+  accuknox_label:
+    description: "Label in AccuKnox SaaS for scan results"
+    required: true
+  directory:
+    description: "Directory with infrastructure code to scan"
+    required: false
+    default: "."
+  file:
+    description: "Specify a file for scanning; cannot be used with directory input."
+    required: false
+    default: ""
+  framework:
+    description: "Run only on a specific infrastructure, Kubernetes or Terraform"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
   steps:
-    - name: Run AccuKnox IaC Scanner
+    - name: Run AccuKnox IaC Scan
       shell: bash
       env:
+        SOFT_FAIL: ${{ inputs.soft_fail }}
+        PIPELINE_ID: ${{ inputs.pipeline_id }}
+        JOB_URL: ${{ inputs.job_url }}
         ACCUKNOX_ENDPOINT: ${{ inputs.accuknox_endpoint }}
-        ACCUKNOX_LABEL: ${{ inputs.accuknox_label }}
         ACCUKNOX_TOKEN: ${{ inputs.accuknox_token }}
+        ACCUKNOX_LABEL: ${{ inputs.accuknox_label }}
         DIRECTORY: ${{ inputs.directory }}
         FILE: ${{ inputs.file }}
-        COMPACT: ${{ inputs.compact }}
-        QUIET: ${{ inputs.quiet }}
-        SOFT_FAIL: ${{ inputs.soft_fail }}
         FRAMEWORK: ${{ inputs.framework }}
       run: |
-        if [ -z "$ACCUKNOX_ENDPOINT" ] || [ -z "$ACCUKNOX_LABEL" ] || [ -z "$ACCUKNOX_TOKEN" ]; then
-          echo "ERROR: ACCUKNOX_ENDPOINT, ACCUKNOX_LABEL, and ACCUKNOX_TOKEN must be set!"
+        # Validate required secrets
+        if [ -z "$ACCUKNOX_ENDPOINT" ] || [ -z "$ACCUKNOX_TOKEN" ] || [ -z "$ACCUKNOX_LABEL" ]; then
+          echo "ERROR: ACCUKNOX_ENDPOINT, ACCUKNOX_TOKEN, and ACCUKNOX_LABEL must be set!"
           exit 1
         fi
 
+        # Download latest ASPM Scanner
         echo "Downloading AccuKnox ASPM Scanner..."
-        curl -L https://github.com/accuknox/aspm-scanner-cli/releases/download/v0.13.4/accuknox-aspm-scanner -o accuknox-aspm-scanner
+        curl -L https://github.com/accuknox/aspm-scanner-cli/releases/download/v0.14.0/accuknox-aspm-scanner -o accuknox-aspm-scanner
         chmod +x accuknox-aspm-scanner
 
-        mkdir -p accuknox-reports
+        # Determine soft-fail argument
+        SOFT_FAIL_ARG=""
+        SOFT_FAIL="${SOFT_FAIL//[$'\t\r\n ']}"  # clean whitespace
+        if [ "$SOFT_FAIL" = "true" ]; then
+          SOFT_FAIL_ARG="--softfail"
+        fi
 
+        # Prepare IaC scan command arguments
         CMD_ARGS=""
         [ -n "$FILE" ] && CMD_ARGS="$CMD_ARGS --file $FILE"
         [ -n "$DIRECTORY" ] && CMD_ARGS="$CMD_ARGS --directory $DIRECTORY"
-        [ "$COMPACT" = "true" ] && CMD_ARGS="$CMD_ARGS --compact"
-        [ "$QUIET" = "true" ] && CMD_ARGS="$CMD_ARGS --quiet"
         [ -n "$FRAMEWORK" ] && CMD_ARGS="$CMD_ARGS --framework $FRAMEWORK"
-        [ "$SOFT_FAIL" = "true" ] && SOFT_FAIL_ARG="--softfail"
 
-        echo ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}"
-        ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}"
+        echo "Running AccuKnox IaC scan..."
+        ./accuknox-aspm-scanner scan --keep-results $SOFT_FAIL_ARG iac \
+          --command "$CMD_ARGS" \
+          --container-mode \
+          --repo-url "https://github.com/${GITHUB_REPOSITORY}.git" \
+          --repo-branch "${GITHUB_REF#refs/heads/}" \
+          --pipeline-id "$PIPELINE_ID" \
+          --job-url "$JOB_URL" || true
 
-    - name: Upload AccuKnox IaC Scan Reports
+    - name: Upload IaC Scan Results
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: accuknox-iac-scan-reports
-        path: accuknox-reports/
+        name: iac-scan-results
+        path: results.json
+        retention-days: 30
