@@ -60,17 +60,20 @@ runs:
         [ -n "$DIRECTORY" ] && CMD_ARGS="$CMD_ARGS --directory $DIRECTORY"
         [ -n "$FRAMEWORK" ] && CMD_ARGS="$CMD_ARGS --framework $FRAMEWORK"
 
+        SOFT_FAIL_ARG=""
+        SOFT_FAIL="${SOFT_FAIL//[$'\t\r\n ']}"
         if [ "$SOFT_FAIL" = "true" ]; then
           SOFT_FAIL_ARG="--softfail"
         fi
 
         echo "Running AccuKnox IaC scan..."
-        ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}" --keep-results || true
+        ./accuknox-aspm-scanner scan $SOFT_FAIL_ARG iac --command "$CMD_ARGS" --container-mode --repo-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" --repo-branch "${GITHUB_REF#refs/heads/}" || true
 
     - name: Upload IaC Scan Results
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: iac-scan-results
-        path: results.json
+        # scan will produce results.json automatically
+        path: "**/results.json"
         retention-days: 30
